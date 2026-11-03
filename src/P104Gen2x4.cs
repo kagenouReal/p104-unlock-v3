@@ -2120,6 +2120,7 @@ class P104Gen2x4
                 case "uninstall": mode = "uninstall"; break;
                 case "diag": case "diagnose": mode = "diag"; break;
                 case "bw": case "bandwidth": mode = "bw"; break;
+                case "fuse": case "fusebits": mode = "fuse"; break;
                 case "vbios": case "rom": mode = "vbios"; break;
                 case "dry-run": case "dryrun": dryRun = true; break;
                 case "quiet": Quiet = true; break;
@@ -2151,6 +2152,7 @@ class P104Gen2x4
         if (mode == "check") return DoCheck();
         if (mode == "diag") return DoDiag();
         if (mode == "bw") return DoBw();
+        if (mode == "fuse") return DoFuse();
         if (mode == "vbios") return DoVbios(args);
         if (mode == "install") return DoInstall();
         if (mode == "uninstall") return DoUninstall();
