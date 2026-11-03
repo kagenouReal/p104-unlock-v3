@@ -228,6 +228,12 @@ def link_state(s, b, d, f):
     l2 = cfg(s, (b, d, f), cap, 0x2C)
     c2 = cfg(s, (b, d, f), cap, 0x30)
     ls2 = cfg(s, (b, d, f), cap, 0x32)
+    dc = cfg(s, (b, d, f), cap, 0x04)   # Device Capabilities
+    dv = cfg(s, (b, d, f), cap, 0x08)   # Device Control
+    mps_cap = None if dc == 0xFFFFFFFF else 128 << (dc & 0x7)
+    mps = None if dv == 0xFFFFFFFF else 128 << ((dv >> 5) & 0x7)
+    mrrs = None if dv == 0xFFFFFFFF else 128 << ((dv >> 12) & 0x7)
+    aspm = None if lt == 0xFFFFFFFF else (lt & 0x3)
     return {
         "bdf": "%02X:%02X.%d" % (b, d, f),
         "cap_offset": cap,
@@ -237,6 +243,12 @@ def link_state(s, b, d, f):
         "lnkcap2": l2,
         "lnkctl2": c2,
         "lnksta2": ls2,
+        "devcap": dc,
+        "devctl": dv,
+        "mps_cap": mps_cap,
+        "mps": mps,
+        "mrrs": mrrs,
+        "aspm": aspm,
         "max_speed": lc & 0xF,
         "max_speed_text": SPD.get(lc & 0xF, "?"),
         "max_width": (lc >> 4) & 0x3F,
@@ -374,6 +386,9 @@ def print_human(rep):
                                   ("RETRAIN " if ln["retrain"] else "") + ("LINKDIS" if ln["link_disable"] else "")))
         p("  LNKCTL2 = %s  TLS=%d (%s)" % (hx(ln["lnkctl2"]), ln["tls"], ln["tls_text"]))
         p("  LNKSTA2 = %s" % hx(ln["lnksta2"]))
+        p("  DEVCTL  = %s  MPS=%sB  MRRS=%sB  ASPM=%s" % (
+            hx(ln["devctl"], 4), ln.get("mps"), ln.get("mrrs"),
+            {0: "off", 1: "L0s", 2: "L1", 3: "L0s+L1"}.get(ln.get("aspm"), "?")))
     rp = rep["root_port"]
     if rp:
         rl = rp["link"]
@@ -382,6 +397,9 @@ def print_human(rep):
             p("  LNKCAP  = %s  声明: %s x%d" % (hx(rl["lnkcap"]), rl["max_speed_text"], rl["max_width"]))
             p("  LNKSTA  = %s  实际: %s x%d" % (hx(rl["lnksta"]), rl["cur_speed_text"], rl["cur_width"]))
             p("  LNKCTL2 = %s  TLS=%d (%s)" % (hx(rl["lnkctl2"]), rl["tls"], rl["tls_text"]))
+            p("  DEVCTL  = %s  MPS=%sB  MRRS=%sB  ASPM=%s" % (
+                hx(rl["devctl"], 4), rl.get("mps"), rl.get("mrrs"),
+                {0: "off", 1: "L0s", 2: "L1", 3: "L0s+L1"}.get(rl.get("aspm"), "?")))
     else:
         p("[上游根端口] 未找到（可能是根复合体直连）")
     p("")
