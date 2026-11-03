@@ -14,6 +14,8 @@
 //    P104Gen2x4.exe -off            停止按住、按快照还原寄存器
 //    P104Gen2x4.exe -install        安装（写驱动策略 + 部署 + 注册计划任务）
 //    P104Gen2x4.exe -uninstall      卸载（删任务 + 停服务；保留驱动策略键）
+//    P104Gen2x4.exe -install-service   安装为 Windows 服务（替代计划任务，开机自启）
+//    P104Gen2x4.exe -uninstall-service 卸载服务（保留驱动策略键）
 //    P104Gen2x4.exe -bw             只读：CUDA 带宽实测（无需 Python）
 //    P104Gen2x4.exe -vbios [-save x.rom]   读 VBIOS 并算哈希（只读）
 //    P104Gen2x4.exe -quiet          日志只写文件不打印
@@ -55,6 +57,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.ServiceProcess;
 
 class P104Gen2x4
 {
@@ -69,6 +72,7 @@ class P104Gen2x4
 
     const string SVC_WR = "P104Gen2x4Wr";
     const string SVC_TS = "P104Gen2x4Ts";
+    const string SVC_MAIN = "P104Gen2x4";
 
     // BAR0 寄存器
     const uint OFF_PRIV_MISC1 = 0x8841C;      // 写使能位：置 bit11/13/15，清 bit12/14（复位前置）；live 路径另见 ApplyLiveGroup
@@ -184,6 +188,7 @@ class P104Gen2x4
     static uint _bar;
     static byte _bus, _dev, _fun;
     static bool Quiet = false;
+    static volatile bool _stopRequested = false;
     /// <summary>整卡复位最多做几次。★ 默认 1 —— 每次复位都会让屏幕黑一下，
     /// 多次复位会造成"反复黑屏"，所以必须显式 -retry N 才允许多次。</summary>
     static int ResetRetries = 1;
@@ -834,20 +839,22 @@ class P104Gen2x4
     static bool WaitReady(int timeoutMs)
     {
         int waited = 0;
-        while (waited < timeoutMs)
+        while (waited < timeoutMs && !_stopRequested)
         {
             if (EnsureDevices() && FindP104(out _bus, out _dev, out _fun)) break;
             if (waited == 0) Log("设备/驱动尚未就绪，开始等待（最多 " + (timeoutMs / 1000) + " 秒）…");
             Thread.Sleep(2000); waited += 2000;
         }
+        if (_stopRequested) return false;
         if (waited >= timeoutMs) { Log("等待 " + (timeoutMs / 1000) + " 秒后仍找不到 P104-100 (10DE:1B87)"); return false; }
         if (waited > 0) Log("设备已就绪（等待 " + (waited / 1000) + " 秒）");
         int w2 = 0;
-        while (w2 < timeoutMs)
+        while (w2 < timeoutMs && !_stopRequested)
         {
             if (NvidiaSmiReady()) { if (w2 > 0) Log("NVIDIA 驱动就绪（等待 " + (w2 / 1000) + " 秒）"); return true; }
             Thread.Sleep(3000); w2 += 3000;
         }
+        if (_stopRequested) return false;
         Log("nvidia-smi 在 " + (timeoutMs / 1000) + " 秒内未就绪 —— 继续尝试，但失败风险升高");
         return true;
     }
@@ -1432,6 +1439,13 @@ class P104Gen2x4
         //     taskOk=false && !admin       → **无法查询**（不能说成"未注册"）
         string t = Run("schtasks.exe", "/query /tn \"" + TaskName + "\" /fo LIST");
         bool taskOk = t.IndexOf(TaskName, StringComparison.OrdinalIgnoreCase) >= 0;
+        bool svcOk = false;
+        if (!taskOk)
+        {
+            string sq = Run("sc.exe", "query " + SVC_MAIN);
+            svcOk = sq.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (svcOk) taskOk = true;
+        }
         bool taskUnknown = !taskOk && !admin;
 
         // ---------- ① 实时状态文件（按住进程每秒刷新，不需要管理员）----------
@@ -1530,7 +1544,8 @@ class P104Gen2x4
         if (holderSeen) holderPart = "保持进程 运行中 PID " + procs[0].Id;
         else if (!enumOk || !admin) holderPart = "保持进程 未检出（权限受限，按数据新鲜度判定）";
         else holderPart = "保持进程 未运行";
-        string taskPart = taskOk ? "计划任务 已注册"
+        string taskPart = svcOk ? "服务 已运行"
+                        : taskOk ? "计划任务 已注册"
                         : taskUnknown ? "计划任务 无法查询（需要管理员）"
                         : "计划任务 未注册";
         Console.WriteLine("  判定依据：" + dataPart + "  |  " + holderPart + "  |  " + taskPart);
@@ -1569,7 +1584,8 @@ class P104Gen2x4
         Console.WriteLine("  按住进程 ....... {0}", holderSeen
             ? string.Format("运行中（PID {0}）", procs[0].Id)
             : (fresh ? "未检出（状态数据新鲜，判定为仍在运行；可能权限受限看不到 SYSTEM 进程）" : "未运行"));
-        if (taskOk) Console.WriteLine("  开机自启任务 ... 已注册（开机+90 秒 / 登录+120 秒 / 每 5 分钟自愈）");
+        if (svcOk) Console.WriteLine("  开机自启 ....... 服务已运行（SYSTEM，开机自启，失败自动重启）");
+        else if (taskOk) Console.WriteLine("  开机自启任务 ... 已注册（开机+90 秒 / 登录+120 秒 / 每 5 分钟自愈）");
         else if (taskUnknown) Console.WriteLine("  开机自启任务 ... 无法查询（需要管理员权限才能查询计划任务）");
         else Console.WriteLine("  开机自启任务 ... 未注册");
         Console.WriteLine();
@@ -2092,6 +2108,9 @@ class P104Gen2x4
             "  P104Gen2x4.exe -off           停止并还原寄存器（需要管理员）",
             "  P104Gen2x4.exe -install       安装：部署 + 计划任务（需要管理员）",
             "  P104Gen2x4.exe -uninstall     卸载（保留驱动策略键；加 -purgepolicy 彻底清）",
+            "  P104Gen2x4.exe -install-service    安装为 Windows 服务（替代计划任务）",
+            "  P104Gen2x4.exe -uninstall-service  卸载 Windows 服务（保留驱动策略键）",
+            "  P104Gen2x4.exe -service        Windows 服务入口（由 SCM 调用，勿手动运行）",
             "  P104Gen2x4.exe -vbios [-save 路径]  VBIOS 读取校验（只读）",
             "",
             "选项:",
@@ -2123,6 +2142,9 @@ class P104Gen2x4
                 case "off": mode = "off"; break;
                 case "install": mode = "install"; break;
                 case "uninstall": mode = "uninstall"; break;
+                case "install-service": case "installservice": mode = "install-service"; break;
+                case "uninstall-service": case "uninstallservice": mode = "uninstall-service"; break;
+                case "service": mode = "service"; break;
                 case "diag": case "diagnose": mode = "diag"; break;
                 case "bw": case "bandwidth": mode = "bw"; break;
                 case "fuse": case "fusebits": mode = "fuse"; break;
@@ -2161,17 +2183,35 @@ class P104Gen2x4
         if (mode == "vbios") return DoVbios(args);
         if (mode == "install") return DoInstall();
         if (mode == "uninstall") return DoUninstall();
+        if (mode == "install-service") return DoInstallService();
+        if (mode == "uninstall-service") return DoUninstallService();
+        if (mode == "service")
+        {
+            try { ServiceBase.Run(new P104Service()); }
+            catch (Exception e) { Say("service mode error: " + e.Message); return 1; }
+            return 0;
+        }
 
-        Log("=== P104Gen2x4 v1.2 启动，模式=" + mode + (Quiet ? "（quiet）" : "") + " ===");
+        return RunBringUp(mode, dryRun, false);
+    }
 
+    static int RunBringUp(string mode, bool dryRun, bool serviceMode)
+    {
         // ★ 全局单实例锁：同一时刻只允许一个非只读实例映射 BAR0。
         bool created;
         Mutex mtx = new Mutex(true, @"Global\P104Gen2x4Session", out created);
         if (!created)
         {
             Log("已有实例在运行（可能是按住进程），本次退出以避免 MMIO 冲突");
-            return 0;
+            return serviceMode ? 3 : 0;
         }
+        try { return RunBringUpBody(mode, dryRun, serviceMode); }
+        finally { try { mtx.ReleaseMutex(); } catch { } }
+    }
+
+    static int RunBringUpBody(string mode, bool dryRun, bool serviceMode)
+    {
+        Log("=== P104Gen2x4 v1.2 启动，模式=" + mode + (Quiet ? "（quiet）" : "") + " ===");
 
         // 清理上次异常退出可能留下的驱动服务（进程被杀时不会走 CloseAll）
         foreach (string svc in new[] { SVC_WR, SVC_TS })
@@ -2185,17 +2225,20 @@ class P104Gen2x4
         BudgetLoad();
 
         // S0 就绪门控：设备 + NVIDIA 驱动（子进程；★ 不做 cuInit）
-        if (!WaitReady(T_READY_MS))
+        int readyMs = serviceMode ? 30000 : T_READY_MS;
+        if (!WaitReady(readyMs))
         {
             Log("找不到 P104-100 (10DE:1B87) 或驱动未就绪 —— 本次退出（若设备已消失请 AC 断电）");
+            CloseAll(); UnloadServices();
             return 4;
         }
         if (!SelfTestWrite(_bus, _dev, _fun))
         {
             Log("!! 配置空间写通道自检失败 —— 拒绝继续（避免得到错误的\"只读\"结论）");
+            CloseAll(); UnloadServices();
             return 5;
         }
-        if (!RefreshRefs()) { Log("MMIO 映射失败"); return 6; }
+        if (!RefreshRefs()) { Log("MMIO 映射失败"); CloseAll(); UnloadServices(); return 6; }
         Log(string.Format("P104 {0:X2}:{1:X2}.{2}  BAR0=0x{3:X8}  上游 {4}",
             _bus, _dev, _fun, _bar,
             _rcap != 0 ? string.Format("{0:X2}:{1:X2}.{2}", _rb, _rd, _rf) : "(未找到)"));
@@ -2238,7 +2281,7 @@ class P104Gen2x4
     {
         int lostStreak = 0, healFail = 0, lowSpeedStreak = 0, liveRetry = 0;
         long lastStatus = 0, gen2Since = NowTick();
-        while (true)
+        while (!_stopRequested)
         {
             try
             {
@@ -2343,6 +2386,9 @@ class P104Gen2x4
             catch { }
             Thread.Sleep(T_HOLD_PERIOD_MS);
         }
+        Log("按住循环已停止：" + (_stopRequested ? "收到停止请求" : "未知原因"));
+        CloseAll(); UnloadServices();
+        return 0;
     }
 
     static void CloseAll()
@@ -2466,6 +2512,93 @@ class P104Gen2x4
         bool ok = q.IndexOf(TaskName, StringComparison.OrdinalIgnoreCase) >= 0;
         Log("计划任务校验: " + (ok ? "存在 ✓" : "**未找到**"));
         return ok;
+    }
+
+    // ================= Windows 服务模式 =================
+    class P104Service : ServiceBase
+    {
+        Thread _thread;
+        public P104Service()
+        {
+            ServiceName = SVC_MAIN;
+            CanStop = true;
+            CanShutdown = true;
+            AutoLog = false;
+        }
+        protected override void OnStart(string[] args)
+        {
+            Quiet = true;
+            _stopRequested = false;
+            _thread = new Thread(ServiceLoop);
+            _thread.IsBackground = true;
+            _thread.Name = "P104BringUp";
+            _thread.Start();
+        }
+        protected override void OnStop()
+        {
+            _stopRequested = true;
+            try { if (_thread != null) _thread.Join(10000); } catch { }
+        }
+        protected override void OnShutdown()
+        {
+            _stopRequested = true;
+            try { if (_thread != null) _thread.Join(10000); } catch { }
+            base.OnShutdown();
+        }
+        static void ServiceLoop()
+        {
+            while (!_stopRequested)
+            {
+                int rc = RunBringUp("bringup", false, true);
+                if (_stopRequested) return;
+                if (rc == 0) return;
+                Log("[service] bring-up rc=" + rc + "，15 秒后重试");
+                for (int i = 0; i < 15 && !_stopRequested; i++) Thread.Sleep(1000);
+            }
+        }
+    }
+
+    static int DoInstallService()
+    {
+        Log("=== 服务安装 ===");
+        // 先停掉可能存在的旧服务，避免 DoInstall 杀进程后被 SCM 自动拉起
+        Run("sc.exe", "stop " + SVC_MAIN);
+        Run("sc.exe", "delete " + SVC_MAIN);
+
+        int rc = DoInstall();
+        if (rc != 0) { Log("文件部署失败，服务未安装"); return rc; }
+
+        // 服务模式取代计划任务，避免双实例
+        Run("schtasks.exe", "/Delete /TN \"" + TaskName + "\" /F");
+
+        string target = @"C:\Program Files\P104Gen2x4";
+        string exe = Path.Combine(target, "P104Gen2x4.exe");
+        if (!File.Exists(exe)) { Log("找不到 " + exe); return 1; }
+
+        // binPath 里必须带引号，否则 Program Files 的空格会被 SCM 拆开
+        string args = "create " + SVC_MAIN + " type= own start= auto DisplayName= \"P104 PCIe Gen2 x4\" binPath= \"\\\"" + exe + "\\\" -service\"";
+        Log("sc create: " + Run("sc.exe", args));
+        Run("sc.exe", "description " + SVC_MAIN + " \"P104-100 PCIe Gen2 x4 解锁（服务模式，开机自启）\"");
+        Run("sc.exe", "failure " + SVC_MAIN + " reset= 86400 actions= restart/5000/restart/10000/restart/30000");
+        Log("sc start: " + Run("sc.exe", "start " + SVC_MAIN));
+
+        bool ok = false;
+        for (int i = 0; i < 20; i++)
+        {
+            string q = Run("sc.exe", "query " + SVC_MAIN);
+            if (q.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0) { ok = true; break; }
+            Thread.Sleep(1000);
+        }
+        Log("服务状态: " + (ok ? "RUNNING" : "未运行（看 C:\\ProgramData\\P104Gen2x4\\status.txt）"));
+        return ok ? 0 : 1;
+    }
+
+    static int DoUninstallService()
+    {
+        Log("=== 服务卸载 ===");
+        Run("sc.exe", "stop " + SVC_MAIN);
+        Run("sc.exe", "delete " + SVC_MAIN);
+        return DoUninstall();
     }
 
     static int DoInstall()

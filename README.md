@@ -1,5 +1,11 @@
 <h2><strong>2026-11-01: Due to current technical limitations, physical x16 on the P104 is not achievable at this time; this project will be on an extended hiatus for further exploration.</strong></h2>
 
+> **Fork notice — Windows Service + Installer (kagenouReal, 2026-11-04):**
+> This is a fork of [skbskhud/p104-unlock-v3](https://github.com/skbskhud/p104-unlock-v3).
+> The original reverse-engineering, tool, methodology and documentation are by **skbskhud and contributors**.
+> This fork adds a Windows service mode and a GUI installer. The upstream repository declares **no license**;
+> this fork preserves the original attribution and does not claim ownership. See [`NOTICE.md`](NOTICE.md).
+
 # P104-100: PCIe Gen2 x4 unlock + x16 width declaration (Windows, full open source)
 
 [中文](README.zh-CN.md) | **English**
@@ -8,6 +14,53 @@
 > factory **Gen1 x4 (≈0.78 GB/s)** → **Gen2 x4 (≈1.55/1.69 GB/s measured)**,
 > plus the **x16 width declaration** (`LnkCap maxwidth = 16`), kept alive by a resident watchdog.
 > Measured drop recovery: **Gen2 in 0.23–0.25 s, x16 declaration in 0.73–0.84 s**.
+
+## Windows Service + Installer (this fork)
+
+> **Release assets:** `P104Gen2x4-Setup.exe` (GUI installer) and `P104Gen2x4-Service-Source.zip` (source).
+> The installer embeds the tool + the two drivers, requests administrator, and calls
+> `P104Gen2x4.exe -install-service`. It does **not** use the scheduled task.
+
+**Install (GUI):** download `P104Gen2x4-Setup.exe` from **Releases** → Run as administrator →
+tick the BYOVD acknowledgement → **Install / Repair**. The service starts immediately and at boot.
+
+**Manual (no GUI):**
+
+```powershell
+& "C:\Program Files\P104Gen2x4\P104Gen2x4.exe" -install-service
+sc.exe query P104Gen2x4
+& "C:\Program Files\P104Gen2x4\P104Gen2x4.exe" -check
+```
+
+**Manage:**
+
+| Task | Command |
+|---|---|
+| Status | `sc.exe query P104Gen2x4` |
+| Stop / start | `sc.exe stop P104Gen2x4` / `sc.exe start P104Gen2x4` |
+| Reinstall / repair | run `-install-service` again |
+| Uninstall (keeps policy keys) | `-uninstall-service` |
+| Log | `C:\ProgramData\P104Gen2x4\status.txt` |
+
+The service is `AUTO_START`, runs as `LocalSystem`, and restarts 5 s / 10 s / 30 s after a crash.
+At boot it may start before the GPU driver; it retries every 15 s until the P104 is ready.
+No scheduled task is created by this fork (the old `-install` task mode is still available).
+
+> **Antivirus / SmartScreen:** the tool loads WinRing0/ThrottleStop (BYOVD) and writes PCIe registers.
+> AV/anti-cheat may flag the installer or the tool. The installer is **unsigned** (no code-signing
+> certificate). Verify `SHA256.txt` from the release and build from source if you prefer.
+
+**Build the installer:**
+
+```powershell
+# 1) tool (service-capable) — optional; the script builds it if missing
+$csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+& $csc /nologo /target:exe /platform:x64 /codepage:65001 /out:build\P104Gen2x4.exe `
+  /r:C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.ServiceProcess.dll src\P104Gen2x4.cs
+
+# 2) installer + payload + source zip + SHA256
+powershell -ExecutionPolicy Bypass -File .\build-installer.ps1
+```
 
 ## Current version: v3.3 (tool v1.2)
 
@@ -178,6 +231,7 @@ stable (measured: 6 min 40 s with zero drops).
 
 ## Credits
 
+- **skbskhud and contributors** — original project [skbskhud/p104-unlock-v3](https://github.com/skbskhud/p104-unlock-v3);
 - Users of the old v1.6 (Gen2 x4) release for feedback;
 - Authors of the open drivers/toolchain (WinRing0, ThrottleStop);
 - Everyone in the community who explored P104/P106 PCIe unlocking first.
