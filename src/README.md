@@ -9,8 +9,11 @@
 ```powershell
 # 在仓库根目录执行
 $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-& $csc /nologo /optimize+ /target:exe /platform:x64 /out:bin\P104Gen2x4.exe src\P104Gen2x4.cs
+& $csc /nologo /optimize+ /target:exe /platform:x64 /codepage:65001 /out:bin\P104Gen2x4.exe src\P104Gen2x4.cs
 ```
+
+> `src\P104Gen2x4.cs` 是 **UTF-8（无 BOM）**；`csc` 默认按系统 ANSI 代码页读源码，
+> 不加 `/codepage:65001` 会在含中文注释/字符串行报 `CS1010 Newline in constant`。
 
 编译产物放到 `P104-2.0x16-v1.1\bin\`（与 `drivers\` 同级）即可运行。
 由于 csc 会写入编译时间戳，**每次编译的 SHA256 不会相同**；发布包内 exe 的 SHA256 见包内 `SHA256.txt`。
