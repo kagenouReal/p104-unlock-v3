@@ -52,7 +52,8 @@ import lib_session
 # ---------------------------------------------------------------- 解码表 --
 # PCIe 配置空间速率字段（LNKCAP/LNKSTA/LNKCTL2）
 SPD = {1: "2.5GT/s(Gen1)", 2: "5.0GT/s(Gen2)", 3: "8.0GT/s(Gen3)", 4: "16GT/s(Gen4)"}
-# Pascal 0x8C040/0x8C1C0 的速率编码（★ 与 PCIe 字段编码不同：0=8GT, 1=5GT, 2=2.5GT）
+# Pascal 0x8C040 SPEED[19:18] 的速率编码（★ 与 PCIe 字段编码不同：0=8GT, 1=5GT, 2=2.5GT）
+# 注意：0x8C1C0 [19:16] 是 PCIe TLS 风格编码（1=2.5GT, 2=5GT, 3=8GT），必须用 SPD，不要用本表。
 PCFG_SPD = {0: "8.0GT/s(Gen3)", 1: "5.0GT/s(Gen2)", 2: "2.5GT/s(Gen1)", 3: "保留"}
 
 CAP_NAMES = {
@@ -131,7 +132,7 @@ def decode_bar0(off, v):
     if off == 0x8C080:
         return "宽=x%d" % (v & 0x3F)
     if off == 0x8C1C0:
-        return "目标速率=%s(%d)" % (PCFG_SPD.get((v >> 16) & 0xF, "?"), (v >> 16) & 0xF)
+        return "目标速率=%s(%d)" % (SPD.get((v >> 16) & 0xF, "?"), (v >> 16) & 0xF)
     if off == 0x8872C:
         return "低4位=%d %s" % (v & 0xF, "(CHANGE_SPEED_WIDTH=3 已置)" if (v & 0xF) == 6 else "")
     if off == 0x2241C:
