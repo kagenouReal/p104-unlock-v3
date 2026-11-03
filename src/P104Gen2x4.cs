@@ -1899,9 +1899,14 @@ class P104Gen2x4
             lines.Add(s);
         };
         dump(0x020040, "FUSE_EN_SW_OVERRIDE(M-b)");
+        dump(0x020084, "FUSE_DIS_SW_OVERRIDE?");
+        dump(0x020250, "OPT_DISABLE_GEN3_SPEED?");
+        dump(0x020520, "FUSE_PCIE_MAGIC_D?");
+        dump(0x02057C, "FUSE_PCIE_GEN23_DIS?");
+        dump(0x020580, "FUSE_PCIE_GEN3_DIS?");
         dump(0x021140, "FUSE_EN_SW_OVERRIDE(M-a)");
-        dump(0x021580, "GEN3_DIS? (M1)");
-        dump(0x021680, "GEN3_DIS? (M3 alt)");
+        dump(0x021580, "GEN3_DIS? (old guess M1)");
+        dump(0x021680, "GEN3_DIS? (old guess M3 alt)");
         dump(0x021378, "NVDEC_DISABLE?");
         dump(0x021414, "NVENC_DISABLE?");
         dump(0x0212D8, "OFA_DISABLE?");
