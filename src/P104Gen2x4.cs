@@ -2552,7 +2552,7 @@ class P104Gen2x4
                 int rc = RunBringUp("bringup", false, true);
                 if (_stopRequested) return;
                 if (rc == 0) return;
-                Log("[service] bring-up rc=" + rc + "，15 秒后重试");
+                Log("[service] bring-up rc=" + rc + "; retrying in 15 seconds");
                 for (int i = 0; i < 15 && !_stopRequested; i++) Thread.Sleep(1000);
             }
         }
@@ -2560,25 +2560,25 @@ class P104Gen2x4
 
     static int DoInstallService()
     {
-        Log("=== 服务安装 ===");
+        Log("=== Service install ===");
         // 先停掉可能存在的旧服务，避免 DoInstall 杀进程后被 SCM 自动拉起
         Run("sc.exe", "stop " + SVC_MAIN);
         Run("sc.exe", "delete " + SVC_MAIN);
 
-        int rc = DoInstall();
-        if (rc != 0) { Log("文件部署失败，服务未安装"); return rc; }
+        int rc = DoInstall(false);
+        if (rc != 0) { Log("Deployment failed; service not installed."); return rc; }
 
         // 服务模式取代计划任务，避免双实例
         Run("schtasks.exe", "/Delete /TN \"" + TaskName + "\" /F");
 
         string target = @"C:\Program Files\P104Gen2x4";
         string exe = Path.Combine(target, "P104Gen2x4.exe");
-        if (!File.Exists(exe)) { Log("找不到 " + exe); return 1; }
+        if (!File.Exists(exe)) { Log("Cannot find " + exe); return 1; }
 
         // binPath 里必须带引号，否则 Program Files 的空格会被 SCM 拆开
         string args = "create " + SVC_MAIN + " type= own start= auto DisplayName= \"P104 PCIe Gen2 x4\" binPath= \"\\\"" + exe + "\\\" -service\"";
         Log("sc create: " + Run("sc.exe", args));
-        Run("sc.exe", "description " + SVC_MAIN + " \"P104-100 PCIe Gen2 x4 解锁（服务模式，开机自启）\"");
+        Run("sc.exe", "description " + SVC_MAIN + " \"P104-100 PCIe Gen2 x4 unlock (service mode, auto-start)\"");
         Run("sc.exe", "failure " + SVC_MAIN + " reset= 86400 actions= restart/5000/restart/10000/restart/30000");
         Log("sc start: " + Run("sc.exe", "start " + SVC_MAIN));
 
@@ -2589,22 +2589,22 @@ class P104Gen2x4
             if (q.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0) { ok = true; break; }
             Thread.Sleep(1000);
         }
-        Log("服务状态: " + (ok ? "RUNNING" : "未运行（看 C:\\ProgramData\\P104Gen2x4\\status.txt）"));
+        Log("Service state: " + (ok ? "RUNNING" : "not running (see C:\\ProgramData\\P104Gen2x4\\status.txt)"));
         return ok ? 0 : 1;
     }
 
     static int DoUninstallService()
     {
-        Log("=== 服务卸载 ===");
+        Log("=== Service uninstall ===");
         Run("sc.exe", "stop " + SVC_MAIN);
         Run("sc.exe", "delete " + SVC_MAIN);
         return DoUninstall();
     }
 
-    static int DoInstall()
+    static int DoInstall(bool registerTask = true)
     {
         // v1.1：不强制 UTF-8，让控制台用自己的代码页（zh-CN 默认 936）—— 中文/子进程输出都不乱码。
-        Log("=== 安装 ===");
+        Log("=== Install ===");
 
         string self = Process.GetCurrentProcess().MainModule.FileName;
         string target = @"C:\Program Files\P104Gen2x4";
@@ -2626,7 +2626,7 @@ class P104Gen2x4
             }
         }
         catch { }
-        Log("已结束 " + killed + " 个旧的按住进程（跳过本进程 PID " + myPid + "）");
+        Log("Stopped " + killed + " old holder process(es); skipped this process (PID " + myPid + ").");
         System.Threading.Thread.Sleep(2000);
 
         WriteDriverPolicy();
@@ -2636,12 +2636,12 @@ class P104Gen2x4
             Directory.CreateDirectory(Path.Combine(target, "drivers"));
             if (!selfIsTarget)
             {
-                if (!SafeCopy(self, targetExe, "exe")) { Log("部署 exe 失败"); return 1; }
-                Log("已部署 exe 到 " + target);
+                if (!SafeCopy(self, targetExe, "exe")) { Log("Failed to deploy the exe."); return 1; }
+                Log("Deployed exe to " + target);
             }
             else
             {
-                Log("exe 已在目标位置，无需复制");
+                Log("Exe already in place; no copy needed.");
             }
 
             // ★ 驱动文件查找：优先 ExeDir\drivers，其次 <包>\bin\drivers，再次当前目录
@@ -2662,25 +2662,32 @@ class P104Gen2x4
                     break;
                 }
             }
-            if (drvSrc == null) { Log("找不到驱动文件（WinRing0x64.sys / ThrottleStop.sys）"); return 1; }
+            if (drvSrc == null) { Log("Driver files not found (WinRing0x64.sys / ThrottleStop.sys)."); return 1; }
             bool drvOk = true;
             foreach (string f in new[] { "WinRing0x64.sys", "ThrottleStop.sys" })
                 drvOk &= SafeCopy(Path.Combine(drvSrc, f), Path.Combine(target, "drivers", f), f);
-            if (!drvOk) { Log("部署驱动失败"); return 1; }
-            Log("已部署驱动（来源 " + drvSrc + "）");
+            if (!drvOk) { Log("Failed to deploy drivers."); return 1; }
+            Log("Deployed drivers from " + drvSrc + ".");
         }
-        catch (Exception e) { Log("部署失败: " + e.Message); return 1; }
+        catch (Exception e) { Log("Deployment failed: " + e.Message); return 1; }
 
-        bool taskOk = RegisterTask(targetExe);
-        Log("开机自启: " + (taskOk ? "已注册（开机+90s / 登录+120s / 每 5 分钟自愈）" : "注册失败，请手动运行工具"));
-        Log("安装完成。重启后会自动解锁；也可立刻运行: \"" + targetExe + "\"");
+        if (registerTask)
+        {
+            bool taskOk = RegisterTask(targetExe);
+            Log("Autostart: " + (taskOk ? "registered (boot +90s / logon +120s / self-heal every 5 min)." : "registration failed; run the tool manually."));
+            Log("Install complete. It unlocks automatically after reboot; to start now: \"" + targetExe + "\"");
+        }
+        else
+        {
+            Log("Files deployed.");
+        }
         return 0;
     }
 
     static int DoUninstall()
     {
         // v1.1：不强制 UTF-8，让控制台用自己的代码页（zh-CN 默认 936）—— 中文/子进程输出都不乱码。
-        Log("=== 卸载 ===");
+        Log("=== Uninstall ===");
         Log(Run("schtasks.exe", "/Delete /TN \"" + TaskName + "\" /F"));
         UnloadServices();
         // ★ v1.1 改动：不删除驱动策略键（RMPcieLinkSpeed / RmForceEnableGen2 / RmEnableGen2）。
@@ -2692,11 +2699,11 @@ class P104Gen2x4
             bool purge = false;
             foreach (string a in Environment.GetCommandLineArgs())
                 if (a.ToLower().TrimStart('-', '/') == "purgepolicy") purge = true;
-            if (purge) { ClearDriverPolicy(); Log("已按 -purgepolicy 清除驱动策略键。"); }
-            else Log("已保留驱动策略键（RMPcieLinkSpeed=1 等；要清除请加 -purgepolicy）。");
+            if (purge) { ClearDriverPolicy(); Log("Driver policy keys cleared (-purgepolicy)."); }
+            else Log("Driver policy keys kept (RMPcieLinkSpeed=1, etc.; add -purgepolicy to clear).");
         }
-        Log("已删除计划任务、卸载驱动。");
-        Log("（安装目录 C:\\Program Files\\P104Gen2x4 请手动删除）");
+        Log("Scheduled task deleted; drivers unloaded.");
+        Log("(Remove C:\\Program Files\\P104Gen2x4 manually.)");
         return 0;
     }
 }

@@ -22,7 +22,7 @@
 > `P104Gen2x4.exe -install-service`. It does **not** use the scheduled task.
 
 **Install (GUI):** download `P104Gen2x4-Setup.exe` from **Releases** → Run as administrator →
-tick the BYOVD acknowledgement → **Install / Repair**. The service starts immediately and at boot.
+tick the BYOVD acknowledgement → **Install or repair**. The service starts immediately and at boot.
 
 **Manual (no GUI):**
 

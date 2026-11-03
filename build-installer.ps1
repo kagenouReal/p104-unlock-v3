@@ -86,7 +86,7 @@ foreach ($name in @("src", "tools", "docs", "P104-2.0x16-v1.2")) {
     $src = Join-Path $root $name
     if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $srcStage $name) -Recurse -Force }
 }
-foreach ($name in @("README.md", "README.zh-CN.md", "NOTICE.md", "build-installer.ps1", "P104-methodology-AI-agent.md", "RELEASE_NOTES_v3.3.md", "RELEASE_NOTES_v3.4.md")) {
+foreach ($name in @("README.md", "README.zh-CN.md", "NOTICE.md", "build-installer.ps1", "P104-methodology-AI-agent.md", "RELEASE_NOTES_v3.3.md", "RELEASE_NOTES_v3.4.md", "RELEASE_NOTES_v3.4.1.md")) {
     $src = Join-Path $root $name
     if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $srcStage $name) -Force }
 }
