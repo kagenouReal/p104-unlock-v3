@@ -48,7 +48,8 @@ The policy registry keys are kept by default (add `-purgepolicy` to remove them)
 
 - `P104Gen2x4-Setup.exe` — GUI installer (tool + drivers embedded).
 - `P104Gen2x4-Service-Source.zip` — full source (tool, installer, docs, build scripts).
-- `SHA256.txt` — hashes for the assets.
+- `SHA256.txt` — hashes for the assets, plus the payload files embedded in the installer
+  (`P104Gen2x4.exe`, `WinRing0x64.sys`, `ThrottleStop.sys`).
 
 ## Security / antivirus
 
