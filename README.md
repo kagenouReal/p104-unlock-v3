@@ -1,3 +1,5 @@
+> **New / active project (2026-11-26):** [kagenouReal/P2UNLOCK](https://github.com/kagenouReal/P2UNLOCK) — Windows CLI + auto-start service that unlocks **Gen2 x8/x16** on P104-100/P104-101, with CUDA verification and a hash-verified bundled driver. [Download the latest ZIP](https://github.com/kagenouReal/P2UNLOCK/releases/latest).
+
 <h2><strong>2026-11-01: Due to current technical limitations, physical x16 on the P104 is not achievable at this time; this project will be on an extended hiatus for further exploration.</strong></h2>
 
 > **Fork notice — Windows Service + Installer (kagenouReal, 2026-11-04):**
